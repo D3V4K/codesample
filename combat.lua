@@ -36,7 +36,7 @@ local PunchConfig = {--Creating "Punch" object to customize each of the 4 differ
 }
 PunchConfig.__index = PunchConfig
 --Functions
-local function ActivateRagdoll(char)--Ragdoll by deafctivating motor6d and adding ballsocketconstraints to joints
+local function ActivateRagdoll(char)--Ragdoll by deactivating motor6d and adding ballsocketconstraints to joints
 	if char:GetAttribute('Ragdoll') then return end
 	local humanoid = char.Humanoid
 	local hrp = char:FindFirstChild('HumanoidRootPart')
