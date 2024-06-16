@@ -21,10 +21,20 @@ local HitboxDuration = 0.1
 local damage = 10
 local BlockCD = 1
 --Tables
+local Punch = {}
 local playerDebounce = {}
 local HitboxDebounce = {}
 local BlockDebounce = {}
 local PlayerAnimTracks = {}
+--Metatable
+local PunchConfig = {--Creating "Punch" object to customize each of the 4 different punches
+	Animationtrack = nil,
+	Hand = nil,
+	NextCombo = 1,
+	knockbackpower = 40,
+	ragdollonpunch = false,	
+}
+PunchConfig.__index = PunchConfig
 --Functions
 local function ActivateRagdoll(char)--Ragdoll by deafctivating motor6d and adding ballsocketconstraints to joints
 	if char:GetAttribute('Ragdoll') then return end
@@ -89,23 +99,65 @@ local function createHitbox(HitboxOriginPart)--Create a hitbox
 end
 
 local function PlaySFX(sound, parent)--Play a sound effect
+	print(parent.Name)
 	local clonedSFX = sound:Clone()
 	clonedSFX.Parent = parent
 	clonedSFX:Play()
 	Debris:AddItem(clonedSFX, clonedSFX.TimeLength)
 end
 
+--Metatable Functions
+function PunchConfig.new(newtable)
+	return setmetatable(newtable, PunchConfig)
+end
+
+function PunchConfig:Attack(player)--Main Function of M1 attack
+	local char = player.Character
+	local hrp = char.HumanoidRootPart
+	self.Animationtrack:Play()
+	playerDebounce[player] = true
+	PlaySFX(Swing, self.Hand)
+	self.Animationtrack:GetMarkerReachedSignal('Impact'):Connect(function()
+		local hitbox = createHitbox(self.Hand)
+		Debris:AddItem(hitbox, HitboxDuration)
+		hitbox.Touched:Connect(function(part)
+			local EnemyChar = part.Parent
+			local humanoid = EnemyChar:FindFirstChild('Humanoid')
+			if humanoid and EnemyChar ~= char and (HitboxDebounce[EnemyChar] == false or HitboxDebounce[EnemyChar] == nil) then
+				HitboxDebounce[EnemyChar] = true--Debounce system to prevent multiple attacks on the same part on the same hitbox
+				if EnemyChar:GetAttribute('Blocking') == true and (EnemyChar.Shield.Position - hrp.Position).Magnitude < (EnemyChar.HumanoidRootPart.Position - hrp.Position).Magnitude then--Check if enemy is blocking by checking whether the shield or the humanoidroot part is closer to attacking player
+					PlaySFX(Impact, self.Hand)					
+				else
+					humanoid.Health = humanoid.Health - damage
+					PlaySFX(Impact, self.Hand)
+					knockback(player.Character, EnemyChar, self.knockbackpower)
+					if self.ragdollonpunch then ActivateRagdoll(EnemyChar) task.wait(RagdollTime) DeactivateRagdoll(EnemyChar) end
+				end
+			end
+		end)
+		hitbox.AncestryChanged:Connect(function()--Reset the hitbox debounce for the next punch
+			HitboxDebounce = {}
+		end)
+	end)
+	self.Animationtrack.Stopped:Wait()
+	playerDebounce[player] = false
+	char:SetAttribute('Combo', self.NextCombo)
+	lastattack = time()
+end
+
+--Signals
 game.Players.PlayerAdded:Connect(function(player)-- Preload animations and add players to debounce table
 	player.CharacterAdded:Connect(function(char) 
 		playerDebounce[player] = false
 		BlockDebounce[player] = false
 		local animator = char.Humanoid:FindFirstChild('Animator')
 		PlayerAnimTracks[player] = {}
-		PlayerAnimTracks[player].Punch1 = animator:LoadAnimation(Punch1)
-		PlayerAnimTracks[player].Punch2 = animator:LoadAnimation(Punch2)
-		PlayerAnimTracks[player].Punch3 = animator:LoadAnimation(Punch3)
-		PlayerAnimTracks[player].Punch4 = animator:LoadAnimation(Punch4)
+		Punch[player] = {}
 		PlayerAnimTracks[player].Block = animator:LoadAnimation(Block)
+		Punch[player].Punch1 = PunchConfig.new({Animationtrack = animator:LoadAnimation(Punch1), Hand = char.RightHand, NextCombo = 2})--Customize each of the punches here
+		Punch[player].Punch2 = PunchConfig.new({Animationtrack = animator:LoadAnimation(Punch2), Hand = char.LeftHand, NextCombo = 3})	
+		Punch[player].Punch3 = PunchConfig.new({Animationtrack = animator:LoadAnimation(Punch3), Hand = char.RightHand, NextCombo =4})	
+		Punch[player].Punch4 = PunchConfig.new({Animationtrack = animator:LoadAnimation(Punch4), Hand = char.LeftHand, knockbackpower=150, ragdollonpunch=true})	
 	end)	
 end)
 
@@ -130,56 +182,16 @@ game.ReplicatedStorage.RE.M1.OnServerEvent:Connect(function(player)--Punch Funct
 	local hand
 	local nextcombo
 	local ragdollonpunch
-	if combo == 1 then--Set some predetermined values for each punch 
-		animationtrack = PlayerAnimTracks[player].Punch1
-		hand = char.RightHand
-		nextcombo = combo+1
-		knockbackpower = 40
-		ragdollonpunch = false
+	local punch
+	if combo == 1 then--Use previously determined punches according to current combo
+		Punch[player].Punch1:Attack(player)
 	elseif combo == 2 then
-		animationtrack = PlayerAnimTracks[player].Punch2
-		hand = char.LeftHand
-		nextcombo = combo+1
+		Punch[player].Punch2:Attack(player)
 	elseif combo == 3 then
-		animationtrack = PlayerAnimTracks[player].Punch3
-		hand = char.RightHand
-		nextcombo = combo+1
+		Punch[player].Punch3:Attack(player)
 	elseif combo == 4 then
-		animationtrack = PlayerAnimTracks[player].Punch4
-		hand = char.LeftHand
-		nextcombo = 1
-		knockbackpower = 150
-		ragdollonpunch = true
+		Punch[player].Punch4:Attack(player)
 	end
-	animationtrack:Play()--Main Function	
-	playerDebounce[player] = true
-	PlaySFX(Swing, hand)
-	animationtrack:GetMarkerReachedSignal('Impact'):Connect(function()
-		local hitbox = createHitbox(hand)
-		Debris:AddItem(hitbox, HitboxDuration)
-		hitbox.Touched:Connect(function(part)
-			local EnemyChar = part.Parent
-			local humanoid = EnemyChar:FindFirstChild('Humanoid')
-			if humanoid and EnemyChar ~= char and (HitboxDebounce[EnemyChar] == false or HitboxDebounce[EnemyChar] == nil) then
-				HitboxDebounce[EnemyChar] = true--Debounce system to prevent multiple attacks on the same part on the same hitbox
-				if EnemyChar:GetAttribute('Blocking') == true and (EnemyChar.Shield.Position - hrp.Position).Magnitude < (EnemyChar.HumanoidRootPart.Position - hrp.Position).Magnitude then--Check if enemy is blocking by checking whether the shield or the humanoidroot part is closer to attacking player
-					PlaySFX(Impact, hand)					
-				else
-					humanoid.Health = humanoid.Health - damage
-					PlaySFX(Impact, hand)
-					knockback(player.Character, EnemyChar, knockbackpower)
-					if ragdollonpunch then ActivateRagdoll(EnemyChar) task.wait(RagdollTime) DeactivateRagdoll(EnemyChar) end
-				end
-			end
-		end)
-		hitbox.AncestryChanged:Connect(function()--Reset the hitbox debounce for the next punch
-			HitboxDebounce = {}
-		end)
-	end)
-	animationtrack.Stopped:Wait()
-	playerDebounce[player] = false
-	char:SetAttribute('Combo', nextcombo)
-	lastattack = time()
 end)
 
 local ShieldSpawnTween = nil--Global variables made so that spamming block doesn't bug out the system
@@ -190,7 +202,7 @@ game.ReplicatedStorage.RE.Block.OnServerEvent:Connect(function(player, state)--B
 	if BlockDebounce[player] == true then return end--Block Cooldown System
 	if state then
 		if char then--Blocking
-			if ShieldDisappearTween ~= nil then ShieldDisappearTween:Pause() ShieldDisappearTween:Destroy() ShieldDisappearTween = nil end --Piece of code that cancels the disappear tween when the block button is spammed
+			if ShieldDisappearTween ~= nil then ShieldDisappearTween:Pause() ShieldDisappearTween:Destroy() ShieldDisappearTween = nil end--Piece of code that cancels the disappear tween when the block button is spammed
 			BlockTrack:Play()		
 			BlockTrack:GetMarkerReachedSignal('Block'):Connect(function()
 				BlockTrack:AdjustSpeed(0)
@@ -207,7 +219,7 @@ game.ReplicatedStorage.RE.Block.OnServerEvent:Connect(function(player, state)--B
 	else
 		if char then--Not blocking
 			BlockDebounce[player] = true
-			if ShieldSpawnTween ~= nil then ShieldSpawnTween:Pause() ShieldSpawnTween:Destroy() ShieldSpawnTween = nil end --Piece of code that cancels the appear tween when the block button is spammed
+			if ShieldSpawnTween ~= nil then ShieldSpawnTween:Pause() ShieldSpawnTween:Destroy() ShieldSpawnTween = nil end--Piece of code that cancels the appear tween when the block button is spammed
 			char:SetAttribute("Blocking", false)
 			BlockTrack:Stop()
 			local Shield = char.Shield
