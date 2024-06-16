@@ -99,7 +99,6 @@ local function createHitbox(HitboxOriginPart)--Create a hitbox
 end
 
 local function PlaySFX(sound, parent)--Play a sound effect
-	print(parent.Name)
 	local clonedSFX = sound:Clone()
 	clonedSFX.Parent = parent
 	clonedSFX:Play()
